@@ -69,24 +69,22 @@
 			<version>2.5.4</version>
 			<scope>provided</scope>
 		</dependency>
-		<!-- xml处理类 -->
 		<dependency>
 			<groupId>dom4j</groupId>
 			<artifactId>dom4j</artifactId>
 			<version>1.6.1</version>
 			<scope>provided</scope>
 		</dependency>
-		<!-- 环境依赖 -->
-		<dependency>
-			<groupId>javax.servlet</groupId>
-			<artifactId>servlet-api</artifactId>
-			<version>2.4</version>
-			<scope>provided</scope>
-		</dependency>
 		<dependency>
 			<groupId>org.apache.httpcomponents</groupId>
 			<artifactId>httpclient</artifactId>
 			<version>4.3.6</version>
+			<scope>provided</scope>
+		</dependency>
+		<dependency>
+			<groupId>javax.servlet</groupId>
+			<artifactId>servlet-api</artifactId>
+			<version>2.4</version>
 			<scope>provided</scope>
 		</dependency>
 		<dependency>
