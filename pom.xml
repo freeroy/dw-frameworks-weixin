@@ -9,7 +9,7 @@
 	</parent>
 
 	<artifactId>dw-frameworks-weixin</artifactId>
-	<version>0.0.3-SNAPSHOT</version>
+	<version>0.0.3</version>
 	<packaging>jar</packaging>
 	<name>dw-frameworks-weixin</name>
 	<description>微信开发接口框架</description>
