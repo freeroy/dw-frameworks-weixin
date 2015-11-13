@@ -4,7 +4,8 @@
 	<parent>
 		<groupId>org.developerworld.frameworks</groupId>
 		<artifactId>dw-frameworks-parent</artifactId>
-		<version>0.0.2</version>
+		<version>0.0.4</version>
+		<relativePath>../dw-frameworks-parent/pom.xml</relativePath>
 	</parent>
 
 	<artifactId>dw-frameworks-weixin</artifactId>
