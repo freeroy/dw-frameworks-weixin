@@ -9,8 +9,11 @@ import java.util.Arrays;
 import java.util.Set;
 
 import javax.crypto.BadPaddingException;
+import javax.crypto.Cipher;
 import javax.crypto.IllegalBlockSizeException;
 import javax.crypto.NoSuchPaddingException;
+import javax.crypto.spec.IvParameterSpec;
+import javax.crypto.spec.SecretKeySpec;
 import javax.servlet.http.HttpServletRequest;
 import javax.servlet.http.HttpServletResponse;
 
@@ -20,7 +23,6 @@ import org.apache.commons.io.IOUtils;
 import org.apache.commons.lang.ArrayUtils;
 import org.apache.commons.lang.RandomStringUtils;
 import org.apache.commons.lang.StringUtils;
-import org.developerworld.commons.codec.digest.AES;
 import org.developerworld.frameworks.weixin.handler.RequestMessageHandler;
 import org.developerworld.frameworks.weixin.message.RequestMessage;
 import org.developerworld.frameworks.weixin.message.ResponseMessage;
@@ -36,8 +38,7 @@ import org.dom4j.Element;
  * @version 20140306
  * 
  */
-public abstract class AbstractSafeModeRequestMessageHandleServlet extends
-		AbstractRequestMessageHandleServlet {
+public abstract class AbstractSafeModeRequestMessageHandleServlet extends AbstractRequestMessageHandleServlet {
 
 	private final static String CHARSET = "utf-8";
 
@@ -45,8 +46,8 @@ public abstract class AbstractSafeModeRequestMessageHandleServlet extends
 	 * 处理请求信息
 	 */
 	@Override
-	protected void handleRequestMessage(HttpServletRequest request,
-			HttpServletResponse response, String token) throws Exception {
+	protected void handleRequestMessage(HttpServletRequest request, HttpServletResponse response, String token)
+			throws Exception {
 		// 应用id(当要使用时才实例化)
 		String appId = null;
 		// 消息体的签名
@@ -58,52 +59,52 @@ public abstract class AbstractSafeModeRequestMessageHandleServlet extends
 		// 加密类型
 		String encryptType = request.getParameter("encrypt_type");
 		// 获取微信提交过来的信息
-		String xml = IOUtils.toString(request.getInputStream(),
-				request.getCharacterEncoding());
+		String xml = IOUtils.toString(request.getInputStream(), request.getCharacterEncoding());
 		String outXml = null;
-		if (StringUtils.isNotBlank(xml)) {
-			RequestMessage reqMessage = null;
-			// 判定是否为加密消息体
-			if (StringUtils.isNotBlank(encryptType)
-					&& !encryptType.equals("raw")) {
-				appId = getAppId(request);
-				String newXml = decryptXml(request, token, msgSignature,
-						timestamp, nonce, appId, xml);
-				if (StringUtils.isNotBlank(newXml))
-					reqMessage = requestMessageConverter
-							.convertToObject(newXml);
-			} else
-				reqMessage = requestMessageConverter.convertToObject(xml);
-			if (reqMessage != null) {
-				// 获取处理器
-				Set<RequestMessageHandler> requestMessageHandlers = getRequestMessageHandlers(request);
-				for (RequestMessageHandler requestMessageHandler : requestMessageHandlers) {
-					// 判断是否支持处理信息
-					if (requestMessageHandler.isSupport(reqMessage)) {
-						// 处理并反馈响应信息
-						ResponseMessage repMessage = requestMessageHandler
-								.handle(reqMessage);
-						if (repMessage != null) {
-							// 转化响应信息
-							outXml = responseMessageConverter
-									.convertToXml(repMessage);
-							if (StringUtils.isNotBlank(outXml))
+		// 为防止微信超时重复发送请求，需先判断是否已经处理过该信息
+		if (hasResponseMessageInCache(xml)) {
+			// 从缓存读取响应信息
+			outXml = getResponseMessageInCache(xml);
+		} else {
+			if (StringUtils.isNotBlank(xml)) {
+				RequestMessage reqMessage = null;
+				// 判定是否为加密消息体
+				if (StringUtils.isNotBlank(encryptType) && !encryptType.equals("raw")) {
+					appId = getAppId(request);
+					String newXml = decryptXml(request, token, msgSignature, timestamp, nonce, appId, xml);
+					if (StringUtils.isNotBlank(newXml))
+						reqMessage = requestMessageConverter.convertToObject(newXml);
+				} else
+					reqMessage = requestMessageConverter.convertToObject(xml);
+				if (reqMessage != null) {
+					// 获取处理器
+					Set<RequestMessageHandler> requestMessageHandlers = getRequestMessageHandlers(request);
+					for (RequestMessageHandler requestMessageHandler : requestMessageHandlers) {
+						// 判断是否支持处理信息
+						if (requestMessageHandler.isSupport(reqMessage)) {
+							// 处理并反馈响应信息
+							ResponseMessage repMessage = requestMessageHandler.handle(reqMessage);
+							if (repMessage != null) {
+								// 转化响应信息
+								outXml = responseMessageConverter.convertToXml(repMessage);
+								if (StringUtils.isNotBlank(outXml))
+									break;
+							}
+							// 若设置为不再继续查找，则跳出
+							if (!isFindOtherHandlerWhenHasNotResponse())
 								break;
 						}
-						// 若设置为不再继续查找，则跳出
-						if (!isFindOtherHandlerWhenHasNotResponse())
-							break;
 					}
 				}
 			}
+			// 信息加密
+			if (StringUtils.isNotBlank(outXml) && StringUtils.isNotBlank(encryptType) && !encryptType.equals("raw"))
+				outXml = encryXml(request, token, appId, timestamp, nonce, outXml);
+			// 把响应信息写进缓存
+			putResponseMessageInCache(xml, outXml);
 		}
 		if (outXml == null && isOutPrintEmptyWhenHasNotResponse())
 			outXml = "";
-		// 信息加密
-		if (StringUtils.isNotBlank(outXml)
-				&& StringUtils.isNotBlank(encryptType)
-				&& !encryptType.equals("raw"))
-			outXml = encryXml(request, token, appId, timestamp, nonce, outXml);
 		response.getWriter().print(outXml);
 	}
 
@@ -128,19 +129,16 @@ public abstract class AbstractSafeModeRequestMessageHandleServlet extends
 	 * @throws InvalidAlgorithmParameterException
 	 * @throws UnsupportedEncodingException
 	 */
-	private String decryptXml(HttpServletRequest request, String token,
-			String msgSignature, String timestamp, String nonce, String appId,
-			String xml) throws DocumentException, InvalidKeyException,
-			NoSuchAlgorithmException, InvalidKeySpecException,
-			NoSuchPaddingException, IllegalBlockSizeException,
-			BadPaddingException, InvalidAlgorithmParameterException,
-			UnsupportedEncodingException {
+	private String decryptXml(HttpServletRequest request, String token, String msgSignature, String timestamp,
+			String nonce, String appId, String xml)
+					throws DocumentException, InvalidKeyException, NoSuchAlgorithmException, InvalidKeySpecException,
+					NoSuchPaddingException, IllegalBlockSizeException, BadPaddingException,
+					InvalidAlgorithmParameterException, UnsupportedEncodingException {
 		String msgEncrypt = getXmlMsgEncrypt(xml);
 		if (StringUtils.isBlank(msgEncrypt))
 			return null;
 		// 构建验证数组
-		String[] msgSignatureArray = new String[] { token, timestamp, nonce,
-				msgEncrypt };
+		String[] msgSignatureArray = new String[] { token, timestamp, nonce, msgEncrypt };
 		// 字典排序
 		Arrays.sort(msgSignatureArray);
 		// 构建验证字符串
@@ -148,7 +146,7 @@ public abstract class AbstractSafeModeRequestMessageHandleServlet extends
 		for (String msa : msgSignatureArray)
 			_msgSignature += msa;
 		// sha1加密
-		_msgSignature = DigestUtils.shaHex(_msgSignature);
+		_msgSignature = DigestUtils.sha1Hex(_msgSignature);
 		// 校验消息签名
 		if (!_msgSignature.equals(msgSignature))
 			return null;
@@ -156,20 +154,48 @@ public abstract class AbstractSafeModeRequestMessageHandleServlet extends
 		byte[] aesKey = Base64.decodeBase64(encodingAesKey + "=");
 		// 对消息进行解密
 		byte[] aesMsg = Base64.decodeBase64(msgEncrypt);
-		byte[] ranMsg = AES.decrypt(aesKey, aesMsg, AES.ALGORITHM_CBC);
+		byte[] ranMsg = decrypt(aesKey, aesMsg);
 		// 去除补位字符
 		byte[] bytes = encoderPKCS7(ranMsg);
 		// 分离16位随机字符串,网络字节序和AppId
 		byte[] networkOrder = ArrayUtils.subarray(bytes, 16, 20);
 		int xmlLength = recoverNetworkBytesOrder(networkOrder);
 		// 获取appId
-		String _appId = new String(ArrayUtils.subarray(bytes, 20 + xmlLength,
-				bytes.length), CHARSET);
+		String _appId = new String(ArrayUtils.subarray(bytes, 20 + xmlLength, bytes.length), CHARSET);
 		if (!appId.equals(_appId))
 			return null;
 		// 获取原文内容
-		return new String(ArrayUtils.subarray(bytes, 20, 20 + xmlLength),
-				CHARSET);
+		return new String(ArrayUtils.subarray(bytes, 20, 20 + xmlLength), CHARSET);
+	}
+
+	/**
+	 * 根据模式号进行加密或解密操作
+	 * 
+	 * @param key
+	 * @param data
+	 * @param mode
+	 * @return
+	 * @throws InvalidKeyException
+	 * @throws NoSuchAlgorithmException
+	 * @throws InvalidKeySpecException
+	 * @throws NoSuchPaddingException
+	 * @throws IllegalBlockSizeException
+	 * @throws BadPaddingException
+	 * @throws InvalidAlgorithmParameterException
+	 */
+	private byte[] decrypt(byte key[], byte data[])
+			throws InvalidKeyException, NoSuchAlgorithmException, InvalidKeySpecException, NoSuchPaddingException,
+			IllegalBlockSizeException, BadPaddingException, InvalidAlgorithmParameterException {
+		byte[] original;
+		// 设置解密模式为AES的CBC模式
+		Cipher cipher = Cipher.getInstance("AES/CBC/NoPadding");
+		SecretKeySpec key_spec = new SecretKeySpec(key, "AES");
+		IvParameterSpec iv = new IvParameterSpec(ArrayUtils.subarray(key, 0, 16));
+		cipher.init(Cipher.DECRYPT_MODE, key_spec, iv);
+		// 解密
+		original = cipher.doFinal(data);
+		return original;
+
 	}
 
 	/**
@@ -232,12 +258,10 @@ public abstract class AbstractSafeModeRequestMessageHandleServlet extends
 	 * @throws BadPaddingException
 	 * @throws InvalidAlgorithmParameterException
 	 */
-	private String encryXml(HttpServletRequest request, String token,
-			String appId, String timestamp, String nonce, String outXml)
-			throws UnsupportedEncodingException, InvalidKeyException,
-			NoSuchAlgorithmException, InvalidKeySpecException,
-			NoSuchPaddingException, IllegalBlockSizeException,
-			BadPaddingException, InvalidAlgorithmParameterException {
+	private String encryXml(HttpServletRequest request, String token, String appId, String timestamp, String nonce,
+			String outXml) throws UnsupportedEncodingException, InvalidKeyException, NoSuchAlgorithmException,
+					InvalidKeySpecException, NoSuchPaddingException, IllegalBlockSizeException, BadPaddingException,
+					InvalidAlgorithmParameterException {
 		String encodingAesKey = getEncodingAESKey(request);
 		byte[] aesKey = Base64.decodeBase64(encodingAesKey + "=");
 		// 16位随机字符串
@@ -247,15 +271,14 @@ public abstract class AbstractSafeModeRequestMessageHandleServlet extends
 		byte[] networkBytesOrder = getNetworkBytesOrder(outXmlByte.length);
 		byte[] appIdBytes = appId.getBytes(CHARSET);
 		// randomStr + networkBytesOrder + text + appid
-		byte[] msgEncryptByte = ArrayUtils.addAll(
-				ArrayUtils.addAll(random16StrByte, networkBytesOrder),
+		byte[] msgEncryptByte = ArrayUtils.addAll(ArrayUtils.addAll(random16StrByte, networkBytesOrder),
 				ArrayUtils.addAll(outXmlByte, appIdBytes));
+		//添加补位
+		msgEncryptByte=ArrayUtils.addAll(msgEncryptByte,encoderPKCS7(msgEncryptByte.length));
 		// 进行加密
-		msgEncryptByte = AES.encrypt(aesKey, msgEncryptByte, AES.ALGORITHM_CBC);
-		String msgEncrypt = Base64.encodeBase64String(msgEncryptByte);
+		String msgEncrypt = encrypt(aesKey, msgEncryptByte);
 		// 构建验证数组
-		String[] msgSignatureArray = new String[] { token, timestamp, nonce,
-				msgEncrypt };
+		String[] msgSignatureArray = new String[] { token, timestamp, nonce, msgEncrypt };
 		// 字典排序
 		Arrays.sort(msgSignatureArray);
 		// 构建验证字符串
@@ -263,16 +286,71 @@ public abstract class AbstractSafeModeRequestMessageHandleServlet extends
 		for (String msa : msgSignatureArray)
 			_msgSignature += msa;
 		// sha1加密
-		_msgSignature = DigestUtils.shaHex(_msgSignature);
+		_msgSignature = DigestUtils.sha1Hex(_msgSignature);
 		// 构建返回xml
 		StringBuilder _outXml = new StringBuilder().append("<xml>");
-		_outXml.append("<Encrypt>").append(msgEncrypt).append("</Encrypt>");
-		_outXml.append("<MsgSignature>").append(_msgSignature)
-				.append("</MsgSignature>");
+		_outXml.append("<Encrypt><![CDATA[").append(msgEncrypt).append("]]></Encrypt>");
+		_outXml.append("<MsgSignature><![CDATA[").append(_msgSignature).append("]]></MsgSignature>");
 		_outXml.append("<TimeStamp>").append(timestamp).append("</TimeStamp>");
-		_outXml.append("<Nonce>").append(nonce).append("</Nonce>");
+		_outXml.append("<Nonce><![CDATA[").append(nonce).append("]]</Nonce>");
 		_outXml.append("</xml>");
 		return _outXml.toString();
+	}
+
+	/**
+	 * 计算需要填充的位数
+	 * 
+	 * @param count
+	 * @return
+	 * @throws UnsupportedEncodingException
+	 */
+	private byte[] encoderPKCS7(int count) throws UnsupportedEncodingException {
+		// 计算需要填充的位数
+		int amountToPad = 32 - (count % 32);
+		if (amountToPad == 0)
+			amountToPad = 32;
+		// 获得补位所用的字符
+		char padChr = (char) ((byte) (amountToPad & 0xFF));
+		String tmp = new String();
+		for (int index = 0; index < amountToPad; index++)
+			tmp += padChr;
+		return tmp.getBytes(CHARSET);
+	}
+	
+	/**
+	 * 加密
+	 * @param key
+	 * @param data
+	 * @return
+	 * @throws InvalidKeyException
+	 * @throws NoSuchAlgorithmException
+	 * @throws InvalidKeySpecException
+	 * @throws NoSuchPaddingException
+	 * @throws IllegalBlockSizeException
+	 * @throws BadPaddingException
+	 * @throws InvalidAlgorithmParameterException
+	 */
+	private String encrypt(byte key[], byte data[])
+			throws InvalidKeyException, NoSuchAlgorithmException,
+			InvalidKeySpecException, NoSuchPaddingException,
+			IllegalBlockSizeException, BadPaddingException,
+			InvalidAlgorithmParameterException {
+		try {
+			Base64 base64 = new Base64();
+			// 设置加密模式为AES的CBC模式
+			Cipher cipher = Cipher.getInstance("AES/CBC/NoPadding");
+			SecretKeySpec keySpec = new SecretKeySpec(key, "AES");
+			IvParameterSpec iv = new IvParameterSpec(key, 0, 16);
+			cipher.init(Cipher.ENCRYPT_MODE, keySpec, iv);
+			// 加密
+			byte[] encrypted = cipher.doFinal(data);
+			// 使用BASE64对加密后的字符串进行编码
+			String base64Encrypted = base64.encodeToString(encrypted);
+			return base64Encrypted;
+		} catch (Exception e) {
+			e.printStackTrace();
+			return null;
+		}
 	}
 
 	/**

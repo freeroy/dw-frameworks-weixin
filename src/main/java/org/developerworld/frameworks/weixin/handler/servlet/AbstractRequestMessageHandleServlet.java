@@ -4,6 +4,7 @@ import java.io.IOException;
 import java.util.Arrays;
 import java.util.LinkedHashSet;
 import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
 
 import javax.servlet.ServletConfig;
 import javax.servlet.ServletException;
@@ -39,8 +40,7 @@ public abstract class AbstractRequestMessageHandleServlet extends HttpServlet {
 		return isFindOtherHandlerWhenHasNotResponse;
 	}
 
-	public void setFindOtherHandlerWhenHasNotResponse(
-			boolean isFindOtherHandlerWhenHasNotResponse) {
+	public void setFindOtherHandlerWhenHasNotResponse(boolean isFindOtherHandlerWhenHasNotResponse) {
 		this.isFindOtherHandlerWhenHasNotResponse = isFindOtherHandlerWhenHasNotResponse;
 	}
 
@@ -48,8 +48,7 @@ public abstract class AbstractRequestMessageHandleServlet extends HttpServlet {
 		return isOutPrintEmptyWhenHasNotResponse;
 	}
 
-	public void setOutPrintEmptyWhenHasNotResponse(
-			boolean isOutPrintEmptyWhenHasNotResponse) {
+	public void setOutPrintEmptyWhenHasNotResponse(boolean isOutPrintEmptyWhenHasNotResponse) {
 		this.isOutPrintEmptyWhenHasNotResponse = isOutPrintEmptyWhenHasNotResponse;
 	}
 
@@ -57,19 +56,18 @@ public abstract class AbstractRequestMessageHandleServlet extends HttpServlet {
 	public void init(ServletConfig config) throws ServletException {
 		super.init(config);
 		if (config.getInitParameter("isFindOtherHandlerWhenHasNotResponse") != null)
-			setFindOtherHandlerWhenHasNotResponse(Boolean.valueOf(config
-					.getInitParameter("isFindOtherHandlerWhenHasNotResponse")));
+			setFindOtherHandlerWhenHasNotResponse(
+					Boolean.valueOf(config.getInitParameter("isFindOtherHandlerWhenHasNotResponse")));
 		if (config.getInitParameter("isOutPrintEmptyWhenHasNotResponse") != null)
-			setOutPrintEmptyWhenHasNotResponse(Boolean.valueOf(config
-					.getInitParameter("isOutPrintEmptyWhenHasNotResponse")));
+			setOutPrintEmptyWhenHasNotResponse(
+					Boolean.valueOf(config.getInitParameter("isOutPrintEmptyWhenHasNotResponse")));
 	}
 
 	/**
 	 * 处理get请求
 	 */
 	@Override
-	public void doGet(HttpServletRequest request, HttpServletResponse response)
-			throws ServletException, IOException {
+	public void doGet(HttpServletRequest request, HttpServletResponse response) throws ServletException, IOException {
 		String token = getToken(request);
 		if (checkJoinUp(request, token))
 			response.getWriter().print(request.getParameter("echostr"));
@@ -79,8 +77,7 @@ public abstract class AbstractRequestMessageHandleServlet extends HttpServlet {
 	 * 处理post请求
 	 */
 	@Override
-	public void doPost(HttpServletRequest request, HttpServletResponse response)
-			throws ServletException, IOException {
+	public void doPost(HttpServletRequest request, HttpServletResponse response) throws ServletException, IOException {
 		try {
 			String token = getToken(request);
 			// 进行接入校验
@@ -98,38 +95,42 @@ public abstract class AbstractRequestMessageHandleServlet extends HttpServlet {
 	 * @param response
 	 * @throws Exception
 	 */
-	protected void handleRequestMessage(HttpServletRequest request,
-			HttpServletResponse response, String token) throws Exception{
+	protected void handleRequestMessage(HttpServletRequest request, HttpServletResponse response, String token)
+			throws Exception {
 		// 获取微信提交过来的信息
-		String xml = IOUtils.toString(request.getInputStream(),
-				request.getCharacterEncoding());
+		String xml = IOUtils.toString(request.getInputStream(), request.getCharacterEncoding());
 		String outXml = null;
-		if (StringUtils.isNotBlank(xml)) {
-			// 构造对象
-			RequestMessage reqMessage = requestMessageConverter
-					.convertToObject(xml);
-			if (reqMessage != null) {
-				// 获取处理器
-				Set<RequestMessageHandler> requestMessageHandlers = getRequestMessageHandlers(request);
-				for (RequestMessageHandler requestMessageHandler : requestMessageHandlers) {
-					// 判断是否支持处理信息
-					if (requestMessageHandler.isSupport(reqMessage)) {
-						// 处理并反馈响应信息
-						ResponseMessage repMessage = requestMessageHandler
-								.handle(reqMessage);
-						if (repMessage != null) {
-							// 转化响应信息
-							outXml = responseMessageConverter
-									.convertToXml(repMessage);
-							if (StringUtils.isNotBlank(outXml))
+		// 为防止微信超时重复发送请求，需先判断是否已经处理过该信息
+		if (hasResponseMessageInCache(xml)) {
+			// 从缓存读取响应信息
+			outXml = getResponseMessageInCache(xml);
+		} else {
+			if (StringUtils.isNotBlank(xml)) {
+				// 构造对象
+				RequestMessage reqMessage = requestMessageConverter.convertToObject(xml);
+				if (reqMessage != null) {
+					// 获取处理器
+					Set<RequestMessageHandler> requestMessageHandlers = getRequestMessageHandlers(request);
+					for (RequestMessageHandler requestMessageHandler : requestMessageHandlers) {
+						// 判断是否支持处理信息
+						if (requestMessageHandler.isSupport(reqMessage)) {
+							// 处理并反馈响应信息
+							ResponseMessage _repMessage = requestMessageHandler.handle(reqMessage);
+							if (_repMessage != null) {
+								// 转化响应信息
+								outXml = responseMessageConverter.convertToXml(_repMessage);
+								if (StringUtils.isNotBlank(outXml))
+									break;
+							}
+							// 若设置为不再继续查找，则跳出
+							if (!isFindOtherHandlerWhenHasNotResponse())
 								break;
 						}
-						// 若设置为不再继续查找，则跳出
-						if (!isFindOtherHandlerWhenHasNotResponse())
-							break;
 					}
 				}
 			}
+			// 把响应信息写进缓存
+			putResponseMessageInCache(xml, outXml);
 		}
 		if (outXml == null && isOutPrintEmptyWhenHasNotResponse())
 			outXml = "";
@@ -150,9 +151,7 @@ public abstract class AbstractRequestMessageHandleServlet extends HttpServlet {
 		String timestamp = request.getParameter("timestamp");
 		// 随机数
 		String nonce = request.getParameter("nonce");
-		if (StringUtils.isNotBlank(signature)
-				&& StringUtils.isNotBlank(timestamp)
-				&& StringUtils.isNotBlank(nonce)
+		if (StringUtils.isNotBlank(signature) && StringUtils.isNotBlank(timestamp) && StringUtils.isNotBlank(nonce)
 				&& StringUtils.isNotBlank(token)) {
 			// 构建验证数组
 			String[] validateArr = new String[] { token, timestamp, nonce };
@@ -183,6 +182,35 @@ public abstract class AbstractRequestMessageHandleServlet extends HttpServlet {
 	 * @param request
 	 * @return
 	 */
-	protected abstract LinkedHashSet<RequestMessageHandler> getRequestMessageHandlers(
-			HttpServletRequest request);
+	protected abstract LinkedHashSet<RequestMessageHandler> getRequestMessageHandlers(HttpServletRequest request);
+
+	/**
+	 * 对应请求的响应信息是否存在
+	 * 
+	 * @param requestMessage
+	 * @return
+	 */
+	protected boolean hasResponseMessageInCache(String requestMessage) {
+		return false;
+	}
+
+	/**
+	 * 获取请求对应的响应信息
+	 * 
+	 * @param requestMessage
+	 * @return
+	 */
+	protected String getResponseMessageInCache(String requestMessage) {
+		throw new UnsupportedOperationException("该方法没有实现");
+	}
+
+	/**
+	 * 缓存请求响应
+	 * 
+	 * @param requestMessage
+	 * @param responseMessage
+	 */
+	protected void putResponseMessageInCache(String requestMessage, String responseMessage) {
+		// ...
+	}
 }
