@@ -49,15 +49,16 @@ public class CsApi {
 	private final static String GET_ONLINE_KF_LIST_API = "https://api.weixin.qq.com/cgi-bin/customservice/getonlinekflist";
 
 	private final static String GET_KF_LIST_API = "https://api.weixin.qq.com/cgi-bin/customservice/getkflist";
-
-	private final static String GET_KF_RECORD_API = "https://api.weixin.qq.com/cgi-bin/customservice/getrecord";
-
+	
+	//最新获取客服聊天记录接口链接
+	private final static String GET_KF_RECORD_API = " https://api.weixin.qq.com/customservice/msgrecord/getrecord";
+	//private final static String GET_KF_RECORD_API = "https://api.weixin.qq.com/cgi-bin/customservice/getrecord";
 	private final static String REQUEST_CONTENT_CHARSET = "UTF-8";
 
 	private final static CsMessageConverter csMessageConverter = new CsMessageConverter();
 
 	private final static ObjectMapper objectMapper = new ObjectMapper();
-
+	
 	/**
 	 * 发送客服信息
 	 * 
@@ -69,6 +70,21 @@ public class CsApi {
 	 */
 	public static void sendMessage(String accessToken, CsMessage csMessage)
 			throws HttpException, IOException {
+		Map result = new HashMap();
+		sendMessage(accessToken,csMessage,result);
+	}
+
+	/**
+	 * 发送客服信息
+	 * 
+	 * @param accessToken
+	 * @param csMessage
+	 * @param result
+	 * @throws HttpException
+	 * @throws IOException
+	 */
+	public static void sendMessage(String accessToken, CsMessage csMessage,Map result)
+			throws HttpException, IOException {
 		String url = SEND_MESSAGE_API + "?access_token=" + accessToken;
 		String content = csMessageConverter.convertToJson(csMessage);
 		PostMethod method = new PostMethod(url);
@@ -77,7 +93,14 @@ public class CsApi {
 			RequestEntity requestEntity = new StringRequestEntity(content,
 					"application/x-www-form-urlencoded", "utf-8");
 			method.setRequestEntity(requestEntity);
-			httpClient.executeMethod(method);
+			int status = httpClient.executeMethod(method);
+			if (status == HttpStatus.SC_OK) {
+				if (result != null) {
+					String response = method.getResponseBodyAsString();
+					Map json = objectMapper.readValue(response, Map.class);
+					result.putAll(json);
+				}
+			}
 		} finally {
 			method.releaseConnection();
 		}

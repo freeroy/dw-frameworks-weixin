@@ -11,6 +11,7 @@ import org.apache.commons.httpclient.methods.GetMethod;
 import org.apache.commons.httpclient.methods.PostMethod;
 import org.apache.commons.httpclient.methods.RequestEntity;
 import org.apache.commons.httpclient.methods.StringRequestEntity;
+import org.apache.commons.lang.StringUtils;
 
 import com.fasterxml.jackson.core.JsonGenerationException;
 import com.fasterxml.jackson.databind.JsonMappingException;
@@ -26,7 +27,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 public class QrCodeApi {
 
 	private final static String CREATE_QR_CODE_API = "https://api.weixin.qq.com/cgi-bin/qrcode/create";
-	private final static String GET_QR_CODE_API = "http://mp.weixin.qq.com/cgi-bin/showqrcode";//官方说是https，实测是http
+	private final static String GET_QR_CODE_API = "http://mp.weixin.qq.com/cgi-bin/showqrcode";// 官方说是https，实测是http
 
 	private final static Integer EXPIRE_SECONDS = 1800;
 
@@ -37,50 +38,31 @@ public class QrCodeApi {
 	 * 创建临时二维码
 	 * 
 	 * @param accessToken
-	 * @param expireSeconds
 	 * @param sceneId
 	 * @param result
 	 * @throws JsonGenerationException
 	 * @throws JsonMappingException
 	 * @throws IOException
 	 */
-	public static void createTempQrCode(String accessToken,
-			Integer expireSeconds, long sceneId, Map result)
+	public static void createTempQrCode(String accessToken, long sceneId, Map result)
 			throws JsonGenerationException, JsonMappingException, IOException {
-		_createQrCode(accessToken, expireSeconds, sceneId, "QR_SCENE", result);
+		createTempQrCode(accessToken, null, sceneId, result);
 	}
 
 	/**
 	 * 创建临时二维码
 	 * 
 	 * @param accessToken
+	 * @param expireSeconds
 	 * @param sceneId
 	 * @param result
 	 * @throws JsonGenerationException
 	 * @throws JsonMappingException
 	 * @throws IOException
 	 */
-	public static void createTempQrCode(String accessToken, long sceneId,
-			Map result) throws JsonGenerationException, JsonMappingException,
-			IOException {
-		createTempQrCode(accessToken, null, sceneId, result);
-	}
-
-	/**
-	 * 创建临时二位码
-	 * 
-	 * @param accessToken
-	 * @param expireSeconds
-	 * @param sceneId
-	 * @return
-	 * @throws JsonGenerationException
-	 * @throws JsonMappingException
-	 * @throws IOException
-	 */
-	public static String createTempQrCode(String accessToken,
-			Integer expireSeconds, long sceneId)
+	public static void createTempQrCode(String accessToken, Integer expireSeconds, long sceneId, Map result)
 			throws JsonGenerationException, JsonMappingException, IOException {
-		return _createQrCode(accessToken, expireSeconds, sceneId, "QR_SCENE");
+		_createQrCode(accessToken, expireSeconds, sceneId, null, "QR_SCENE", result);
 	}
 
 	/**
@@ -99,6 +81,22 @@ public class QrCodeApi {
 	}
 
 	/**
+	 * 创建临时二位码
+	 * 
+	 * @param accessToken
+	 * @param expireSeconds
+	 * @param sceneId
+	 * @return
+	 * @throws JsonGenerationException
+	 * @throws JsonMappingException
+	 * @throws IOException
+	 */
+	public static String createTempQrCode(String accessToken, Integer expireSeconds, long sceneId)
+			throws JsonGenerationException, JsonMappingException, IOException {
+		return _createQrCode(accessToken, expireSeconds, sceneId, null, "QR_SCENE");
+	}
+
+	/**
 	 * 创建二维码
 	 * 
 	 * @param accessToken
@@ -110,12 +108,60 @@ public class QrCodeApi {
 	 */
 	public static void createQrCode(String accessToken, long sceneId, Map result)
 			throws JsonGenerationException, JsonMappingException, IOException {
-		_createQrCode(accessToken, null, sceneId, "QR_LIMIT_SCENE", result);
+		_createQrCode(accessToken, null, sceneId, null, "QR_LIMIT_SCENE", result);
 	}
 
+	/**
+	 * 创建二维码
+	 * 
+	 * @param accessToken
+	 * @param sceneId
+	 * @return
+	 * @throws JsonGenerationException
+	 * @throws JsonMappingException
+	 * @throws IOException
+	 */
 	public static String createQrCode(String accessToken, long sceneId)
 			throws JsonGenerationException, JsonMappingException, IOException {
-		return _createQrCode(accessToken, null, sceneId, "QR_LIMIT_SCENE");
+		return _createQrCode(accessToken, null, sceneId, null, "QR_LIMIT_SCENE");
+	}
+
+	/**
+	 * 创建二维码(永久字符串参数)，返回ticket
+	 * 
+	 * @param accessToken
+	 * @param sceneId
+	 * @return
+	 * @throws JsonGenerationException
+	 * @throws JsonMappingException
+	 * @throws IOException
+	 */
+	public static String createQrCode(String accessToken, String sceneStr)
+			throws JsonGenerationException, JsonMappingException, IOException {
+		return _createQrCode(accessToken, null, null, sceneStr, "QR_LIMIT_STR_SCENE");
+	}
+
+	/**
+	 * 创建临时二维码
+	 * 
+	 * @param accessToken
+	 * @param expireSeconds
+	 * @param sceneId
+	 * @param sceneStr
+	 * @param actionName
+	 * @return
+	 * @throws JsonGenerationException
+	 * @throws JsonMappingException
+	 * @throws IOException
+	 */
+	private static String _createQrCode(String accessToken, Integer expireSeconds, Long sceneId, String sceneStr,
+			String actionName) throws JsonGenerationException, JsonMappingException, IOException {
+		String rst = null;
+		Map result = new HashMap();
+		_createQrCode(accessToken, expireSeconds, sceneId, sceneStr, actionName, result);
+		if (result.get("ticket") != null)
+			rst = (String) result.get("ticket");
+		return rst;
 	}
 
 	/**
@@ -130,19 +176,20 @@ public class QrCodeApi {
 	 * @throws JsonMappingException
 	 * @throws IOException
 	 */
-	private static void _createQrCode(String accessToken,
-			Integer expireSeconds, long sceneId, String actionName, Map result)
-			throws JsonGenerationException, JsonMappingException, IOException {
+	private static void _createQrCode(String accessToken, Integer expireSeconds, Long sceneId, String sceneStr,
+			String actionName, Map result) throws JsonGenerationException, JsonMappingException, IOException {
 		String url = CREATE_QR_CODE_API + "?access_token=" + accessToken;
 		Map scene = new LinkedHashMap();
-		scene.put("scene_id", sceneId);
-		Map actionInfo=new LinkedHashMap();
+		if (StringUtils.isNotBlank(sceneStr))
+			scene.put("scene_str", sceneStr);
+		else if (sceneId != null)
+			scene.put("scene_id", sceneId);
+		Map actionInfo = new LinkedHashMap();
 		actionInfo.put("scene", scene);
 		Map root = new LinkedHashMap();
 		if (actionName.equals("QR_SCENE")) {
 			root.put("action_name", "QR_SCENE");
-			root.put("expire_seconds", (expireSeconds == null ? EXPIRE_SECONDS
-					: expireSeconds));
+			root.put("expire_seconds", (expireSeconds == null ? EXPIRE_SECONDS : expireSeconds));
 		} else {
 			root.put("action_name", "QR_LIMIT_SCENE");
 		}
@@ -152,8 +199,8 @@ public class QrCodeApi {
 		try {
 			method.getParams().setContentCharset(REQUEST_CONTENT_CHARSET);
 			HttpClient httpClient = new HttpClient();
-			RequestEntity requestEntity = new StringRequestEntity(jsonStr,
-					"application/x-www-form-urlencoded", "utf-8");
+			RequestEntity requestEntity = new StringRequestEntity(jsonStr, "application/x-www-form-urlencoded",
+					"utf-8");
 			method.setRequestEntity(requestEntity);
 			int status = httpClient.executeMethod(method);
 			if (status == HttpStatus.SC_OK) {
@@ -166,28 +213,6 @@ public class QrCodeApi {
 		} finally {
 			method.releaseConnection();
 		}
-	}
-
-	/**
-	 * 创建临时二位码
-	 * 
-	 * @param accessToken
-	 * @param expireSeconds
-	 * @param sceneId
-	 * @return
-	 * @throws JsonGenerationException
-	 * @throws JsonMappingException
-	 * @throws IOException
-	 */
-	private static String _createQrCode(String accessToken,
-			Integer expireSeconds, long sceneId, String actionName)
-			throws JsonGenerationException, JsonMappingException, IOException {
-		String rst = null;
-		Map result = new HashMap();
-		_createQrCode(accessToken, expireSeconds, sceneId, actionName, result);
-		if (result.get("ticket") != null)
-			rst = (String) result.get("ticket");
-		return rst;
 	}
 
 	/**
