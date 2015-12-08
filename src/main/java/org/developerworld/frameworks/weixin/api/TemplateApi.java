@@ -1,7 +1,6 @@
 package org.developerworld.frameworks.weixin.api;
 
 import java.io.IOException;
-import java.io.UnsupportedEncodingException;
 import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.Map;

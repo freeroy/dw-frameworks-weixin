@@ -13,6 +13,7 @@ import org.developerworld.frameworks.weixin.message.request.LocationRequestMessa
 import org.developerworld.frameworks.weixin.message.request.MassEventRequestMessage;
 import org.developerworld.frameworks.weixin.message.request.MenuEventRequestMessage;
 import org.developerworld.frameworks.weixin.message.request.QrCodeEventRequestMessage;
+import org.developerworld.frameworks.weixin.message.request.TemplateEventRequestMessage;
 import org.developerworld.frameworks.weixin.message.request.TextRequestMessage;
 import org.developerworld.frameworks.weixin.message.request.VideoRequestMessage;
 import org.developerworld.frameworks.weixin.message.request.VoiceRequestMessage;
@@ -149,6 +150,14 @@ public class RequestMessageConverter {
 							_msg.setStatus(e.elementText("status"));
 							_msg.setTotalCount(Long.valueOf(e
 									.elementText("TotalCount")));
+							rst = _msg;
+						} else if (event
+								.equalsIgnoreCase(EventType.TEMPLATESENDJOBFINISH
+										.toString())) {
+							TemplateEventRequestMessage _msg = new TemplateEventRequestMessage();
+							_msg.setEvent(EventType.MASSSENDJOBFINISH);
+							_msg.setMsgId(Long.valueOf(e.elementText("MsgID")));
+							_msg.setStatus(e.elementText("status"));
 							rst = _msg;
 						}
 						if (rst != null && rst instanceof EventRequestMessage) {
