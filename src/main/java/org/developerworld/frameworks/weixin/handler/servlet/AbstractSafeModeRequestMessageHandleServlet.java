@@ -265,7 +265,7 @@ public abstract class AbstractSafeModeRequestMessageHandleServlet extends Abstra
 		String encodingAesKey = getEncodingAESKey(request);
 		byte[] aesKey = Base64.decodeBase64(encodingAesKey + "=");
 		// 16位随机字符串
-		String random16Str = RandomStringUtils.randomAscii(16);
+		String random16Str = RandomStringUtils.randomAlphanumeric(16);
 		byte[] random16StrByte = random16Str.getBytes(CHARSET);
 		byte[] outXmlByte = outXml.getBytes(CHARSET);
 		byte[] networkBytesOrder = getNetworkBytesOrder(outXmlByte.length);
