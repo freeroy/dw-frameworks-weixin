@@ -14,11 +14,8 @@ import org.apache.commons.httpclient.methods.PostMethod;
 import org.apache.commons.httpclient.methods.RequestEntity;
 import org.apache.commons.httpclient.methods.StringRequestEntity;
 import org.developerworld.frameworks.weixin.api.dto.NewsArticle;
-import org.developerworld.frameworks.weixin.message.CsMessage;
 import org.developerworld.frameworks.weixin.message.MassMessage;
-import org.developerworld.frameworks.weixin.message.converter.CsMessageConverter;
 import org.developerworld.frameworks.weixin.message.converter.MassMessageConverter;
-import org.developerworld.frameworks.weixin.message.mass.CsNewsMassMessage;
 
 import com.fasterxml.jackson.core.JsonGenerationException;
 import com.fasterxml.jackson.databind.JsonMappingException;
@@ -45,8 +42,6 @@ public class MassApi {
 	private final static ObjectMapper objectMapper = new ObjectMapper();
 
 	private final static MassMessageConverter massMessageConverter = new MassMessageConverter();
-	
-	private final static CsMessageConverter csMessageConverter = new CsMessageConverter();
 
 	private final static String REQUEST_CONTENT_CHARSET = "UTF-8";
 
