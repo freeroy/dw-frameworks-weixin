@@ -104,7 +104,7 @@ public class MassMessageConverter {
 				rst.put("text", new MapBuilder().put("content", _msg.getContent()).map());
 			} else if (massMessage instanceof CsNewsMassMessage) {
 				CsNewsMassMessage _msg = (CsNewsMassMessage) massMessage;
-				rst.put("news", new MapBuilder().put("articles", _msg.getNewsCsMessage().getAtricles()));
+				rst.put("news", new MapBuilder().put("articles", _msg.getNewsCsMessage().getAtricles()).map());
 			}
 			rst.put("msgtype", massMessage.getMsgType().toString());
 		}
