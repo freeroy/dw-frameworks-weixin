@@ -222,7 +222,7 @@ public abstract class AbstractRequestMessageHandleServlet extends HttpServlet {
 	protected boolean isLockRequestMessageHandle(String requestMessage) {
 		try {
 			Cache cache = getLockRequestMessageHandleCache();
-			if (cache != null)
+			if (cache != null && cache.get(requestMessage)!=null)
 				return (Boolean) cache.get(requestMessage);
 		} catch (Exception e) {
 			LOG.error(e);
