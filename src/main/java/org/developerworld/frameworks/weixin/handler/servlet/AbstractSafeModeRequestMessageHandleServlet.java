@@ -6,7 +6,6 @@ import java.security.InvalidKeyException;
 import java.security.NoSuchAlgorithmException;
 import java.security.spec.InvalidKeySpecException;
 import java.util.Arrays;
-import java.util.Set;
 
 import javax.crypto.BadPaddingException;
 import javax.crypto.Cipher;
@@ -18,10 +17,12 @@ import javax.servlet.http.HttpServletRequest;
 
 import org.apache.commons.codec.binary.Base64;
 import org.apache.commons.codec.digest.DigestUtils;
+import org.apache.commons.io.IOUtils;
 import org.apache.commons.lang.ArrayUtils;
 import org.apache.commons.lang.RandomStringUtils;
 import org.apache.commons.lang.StringUtils;
-import org.developerworld.frameworks.weixin.handler.RequestMessageHandler;
+import org.apache.commons.logging.Log;
+import org.apache.commons.logging.LogFactory;
 import org.developerworld.frameworks.weixin.message.RequestMessage;
 import org.developerworld.frameworks.weixin.message.ResponseMessage;
 import org.dom4j.Document;
@@ -38,56 +39,61 @@ import org.dom4j.Element;
  */
 public abstract class AbstractSafeModeRequestMessageHandleServlet extends AbstractRequestMessageHandleServlet {
 
+	private final static Log LOG = LogFactory.getLog(AbstractSafeModeRequestMessageHandleServlet.class);
+
 	private final static String CHARSET = "utf-8";
 
 	@Override
-	protected String doHandle(HttpServletRequest request, String token, String requestMessageXml) throws Exception {
+	protected RequestMessage buildRequestMessage(HttpServletRequest request, String token) {
+		RequestMessage rst = null;
+		try {
+			// 加密类型
+			String encryptType = request.getParameter("encrypt_type");
+			// 判定是否为加密消息体
+			if (StringUtils.isNotBlank(encryptType) && !encryptType.equals("raw")) {
+				// 消息体的签名
+				String msgSignature = request.getParameter("msg_signature");
+				// 时间戳
+				String timestamp = request.getParameter("timestamp");
+				// 随机数
+				String nonce = request.getParameter("nonce");
+				// 获取微信提交过来的信息
+				String requestMessageXml = IOUtils.toString(request.getInputStream(), request.getCharacterEncoding());
+				String newXml = decryptXml(request, token, msgSignature, timestamp, nonce, getAppId(request),
+						requestMessageXml);
+				if (StringUtils.isNotBlank(newXml))
+					rst = requestMessageConverter.convertToObject(newXml);
+			} else
+				rst = super.buildRequestMessage(request, token);
+		} catch (Exception e) {
+			LOG.error(e);
+		}
+		return rst;
+	}
+
+	@Override
+	protected String buildResponseMessageXML(HttpServletRequest request, String token,
+			ResponseMessage responseMessage) {
+		// 转化响应信息
 		String rst = null;
-		RequestMessage reqMessage = null;
-		// 应用id(当要使用时才实例化)
-		String appId = null;
-		// 消息体的签名
-		String msgSignature = request.getParameter("msg_signature");
-		// 时间戳
-		String timestamp = request.getParameter("timestamp");
-		// 随机数
-		String nonce = request.getParameter("nonce");
-		// 加密类型
-		String encryptType = request.getParameter("encrypt_type");
-		// 判定是否为加密消息体
-		if (StringUtils.isNotBlank(encryptType) && !encryptType.equals("raw")) {
-			appId = getAppId(request);
-			String newXml = decryptXml(request, token, msgSignature, timestamp, nonce, appId, requestMessageXml);
-			if (StringUtils.isNotBlank(newXml))
-				reqMessage = requestMessageConverter.convertToObject(newXml);
-		} else
-			reqMessage = requestMessageConverter.convertToObject(requestMessageXml);
-		if (reqMessage != null) {
-			// 获取处理器
-			Set<RequestMessageHandler> requestMessageHandlers = getRequestMessageHandlers(request);
-			for (RequestMessageHandler requestMessageHandler : requestMessageHandlers) {
-				// 判断是否支持处理信息
-				if (requestMessageHandler.isSupport(reqMessage)) {
-					// 处理并反馈响应信息
-					ResponseMessage repMessage = requestMessageHandler.handle(reqMessage);
-					if (repMessage != null) {
-						// 转化响应信息
-						rst = responseMessageConverter.convertToXml(repMessage);
-						if (StringUtils.isNotBlank(rst))
-							break;
-					}
-					// 若设置为不再继续查找，则跳出
-					if (!isFindOtherHandlerWhenHasNotResponse())
-						break;
+		try {
+			rst = super.buildResponseMessageXML(request, token, responseMessage);
+			if (StringUtils.isNotBlank(rst)) {
+				// 加密类型
+				String encryptType = request.getParameter("encrypt_type");
+				// 信息加密
+				if (StringUtils.isNotBlank(encryptType) && !encryptType.equals("raw")) {
+					// 时间戳
+					String timestamp = request.getParameter("timestamp");
+					// 随机数
+					String nonce = request.getParameter("nonce");
+					rst = encryXml(request, token, getAppId(request), timestamp, nonce, rst);
 				}
 			}
+		} catch (Exception e) {
+			LOG.error(e);
 		}
-		// 信息加密
-		if (StringUtils.isNotBlank(rst) && StringUtils.isNotBlank(encryptType) && !encryptType.equals("raw"))
-			rst = encryXml(request, token, appId, timestamp, nonce, rst);
-		// 如果为空，转为空白字符串
-		rst = rst == null ? "" : rst;
-		return rst;
+		return rst == null ? "" : rst;
 	}
 
 	/**

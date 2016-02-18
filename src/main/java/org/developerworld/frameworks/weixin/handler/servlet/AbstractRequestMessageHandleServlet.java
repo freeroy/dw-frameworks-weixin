@@ -22,7 +22,8 @@ import org.developerworld.frameworks.weixin.message.RequestMessage;
 import org.developerworld.frameworks.weixin.message.ResponseMessage;
 import org.developerworld.frameworks.weixin.message.converter.RequestMessageConverter;
 import org.developerworld.frameworks.weixin.message.converter.ResponseMessageConverter;
-import org.dom4j.DocumentException;
+import org.developerworld.frameworks.weixin.message.request.AbstractRequestMessage;
+import org.developerworld.frameworks.weixin.message.request.EventRequestMessage;
 
 /**
  * 接收信息响应servlet
@@ -131,81 +132,120 @@ public abstract class AbstractRequestMessageHandleServlet extends HttpServlet {
 	 */
 	protected void handleRequestMessage(HttpServletRequest request, HttpServletResponse response, String token)
 			throws Exception {
-		// 获取微信提交过来的信息
-		String requestMessageXml = IOUtils.toString(request.getInputStream(), request.getCharacterEncoding());
-		if (StringUtils.isBlank(requestMessageXml))
+		// 构造请求信息对象
+		RequestMessage reqMessage = buildRequestMessage(request, token);
+		if (reqMessage == null)
+			return;
+		// 获取请求信息唯一标识
+		String requestMessageKey = null;
+		if (reqMessage instanceof AbstractRequestMessage) {
+			AbstractRequestMessage _reqMessage = (AbstractRequestMessage) reqMessage;
+			requestMessageKey = _reqMessage.getMsgId() + "_" + _reqMessage.getCreateTime();
+		} else if (reqMessage instanceof EventRequestMessage) {
+			EventRequestMessage _reqMessage = (EventRequestMessage) reqMessage;
+			requestMessageKey = _reqMessage.getFromUserName() + "_" + _reqMessage.getCreateTime();
+		}
+		if (requestMessageKey == null)
 			return;
 		String responseMessageXml = null;
 		// 为防止微信超时重复发送请求，需先判断是否已经处理过该信息
-		if (hasResponseMessageInCache(requestMessageXml))
+		if (hasResponseMessageInCache(requestMessageKey))
 			// 从缓存读取响应信息
-			responseMessageXml = getResponseMessageInCache(requestMessageXml);
+			responseMessageXml = getResponseMessageInCache(requestMessageKey);
 		if (responseMessageXml == null) {
-			lockRequestMessageHandle(requestMessageXml);
+			lockRequestMessageHandle(requestMessageKey);
 			try {
-				responseMessageXml = doHandle(request,token, requestMessageXml);
+				ResponseMessage responseMessage = doHandle(request, token, reqMessage);
+				responseMessageXml = buildResponseMessageXML(request, token, responseMessage);
 				// 把响应信息写进缓存
-				putResponseMessageInCache(requestMessageXml, responseMessageXml);
+				putResponseMessageInCache(requestMessageKey, responseMessageXml);
 			} finally {
-				unlockRequestMessageHandle(requestMessageXml);
+				unlockRequestMessageHandle(requestMessageKey);
 			}
 		}
 		response.getWriter().print(responseMessageXml);
 	}
 
 	/**
-	 * 执行请求信息处理
+	 * 根据请求信息，构建请求信息对象
+	 * 
 	 * @param request
 	 * @param token
-	 * @param requestMessageXml
+	 * @return
+	 */
+	protected RequestMessage buildRequestMessage(HttpServletRequest request, String token) {
+		RequestMessage rst = null;
+		try {
+			// 获取微信提交过来的信息
+			String requestMessageXml = IOUtils.toString(request.getInputStream(), request.getCharacterEncoding());
+			if (StringUtils.isNotBlank(requestMessageXml))
+				// 构造请求信息对象
+				rst = requestMessageConverter.convertToObject(requestMessageXml);
+		} catch (Exception e) {
+			LOG.error(e);
+		}
+		return rst;
+	}
+
+	/**
+	 * 构建响应xml信息字符串
+	 * @param request
+	 * @param token
+	 * @param responseMessage
+	 * @return
+	 */
+	protected String buildResponseMessageXML(HttpServletRequest request, String token, ResponseMessage responseMessage) {
+		// 转化响应信息
+		String rst = null;
+		if (responseMessage != null)
+			rst = responseMessageConverter.convertToXml(responseMessage);
+		return rst == null ? "" : rst;
+	}
+
+	/**
+	 * 执行请求信息处理
+	 * 
+	 * @param request
+	 * @param token
+	 * @param reqMessage
 	 * @return
 	 * @throws Exception
 	 */
-	protected String doHandle(HttpServletRequest request,String token, String requestMessageXml)
+	protected ResponseMessage doHandle(HttpServletRequest request, String token, RequestMessage reqMessage)
 			throws Exception {
-		String rst=null;
-		// 构造对象
-		RequestMessage reqMessage = requestMessageConverter.convertToObject(requestMessageXml);
-		if (reqMessage != null) {
-			// 获取处理器
-			Set<RequestMessageHandler> requestMessageHandlers = getRequestMessageHandlers(request);
-			for (RequestMessageHandler requestMessageHandler : requestMessageHandlers) {
-				// 判断是否支持处理信息
-				if (requestMessageHandler.isSupport(reqMessage)) {
-					// 处理并反馈响应信息
-					ResponseMessage _repMessage = requestMessageHandler.handle(reqMessage);
-					if (_repMessage != null) {
-						// 转化响应信息
-						rst = responseMessageConverter.convertToXml(_repMessage);
-						if (StringUtils.isNotBlank(rst))
-							break;
-					}
-					// 若设置为不再继续查找，则跳出
-					if (!isFindOtherHandlerWhenHasNotResponse())
-						break;
-				}
+		ResponseMessage rst = null;
+		// 获取处理器
+		Set<RequestMessageHandler> requestMessageHandlers = getRequestMessageHandlers(request);
+		for (RequestMessageHandler requestMessageHandler : requestMessageHandlers) {
+			// 判断是否支持处理信息
+			if (requestMessageHandler.isSupport(reqMessage)) {
+				// 处理并反馈响应信息
+				ResponseMessage _repMessage = requestMessageHandler.handle(reqMessage);
+				if (_repMessage != null)
+					break;
+				// 若设置为不再继续查找，则跳出
+				else if (!isFindOtherHandlerWhenHasNotResponse())
+					break;
 			}
 		}
-		// 如果为空，转为空白字符串
-		rst = rst == null ? "" : rst;
 		return rst;
 	}
 
 	/**
 	 * 对应请求的响应信息是否存在
 	 * 
-	 * @param requestMessage
+	 * @param requestMessageKey
 	 * @return
 	 */
-	protected boolean hasResponseMessageInCache(String requestMessage) {
+	protected boolean hasResponseMessageInCache(String requestMessageKey) {
 		// 获取请求信息对应的响应值
-		String responseMessage = getResponseMessageInCache(requestMessage);
+		String responseMessage = getResponseMessageInCache(requestMessageKey);
 		// 若无法获取响应信息，但请求信息被锁定，则尝试锁定
-		if (responseMessage == null && isLockRequestMessageHandle(requestMessage)) {
+		if (responseMessage == null && isLockRequestMessageHandle(requestMessageKey)) {
 			try {
 				// 若请求信息被锁定，则等候一段时间再读取
 				Thread.sleep(getWaitLockRequestMessageTimeout());
-				responseMessage = getResponseMessageInCache(requestMessage);
+				responseMessage = getResponseMessageInCache(requestMessageKey);
 			} catch (Exception e) {
 				LOG.error(e);
 			}
@@ -216,14 +256,14 @@ public abstract class AbstractRequestMessageHandleServlet extends HttpServlet {
 	/**
 	 * 判断请求信息是否被锁定
 	 * 
-	 * @param requestMessage
+	 * @param requestMessageKey
 	 * @return
 	 */
-	protected boolean isLockRequestMessageHandle(String requestMessage) {
+	protected boolean isLockRequestMessageHandle(String requestMessageKey) {
 		try {
 			Cache cache = getLockRequestMessageHandleCache();
-			if (cache != null && cache.get(requestMessage)!=null)
-				return (Boolean) cache.get(requestMessage);
+			if (cache != null && cache.get(requestMessageKey) != null)
+				return (Boolean) cache.get(requestMessageKey);
 		} catch (Exception e) {
 			LOG.error(e);
 		}
@@ -233,13 +273,13 @@ public abstract class AbstractRequestMessageHandleServlet extends HttpServlet {
 	/**
 	 * 锁定请求信息的处理
 	 * 
-	 * @param xml
+	 * @param requestMessageKey
 	 */
-	protected void lockRequestMessageHandle(String requestMessage) {
+	protected void lockRequestMessageHandle(String requestMessageKey) {
 		try {
 			Cache cache = getLockRequestMessageHandleCache();
 			if (cache != null)
-				cache.put(requestMessage, true);
+				cache.put(requestMessageKey, true);
 		} catch (Exception e) {
 			LOG.error(e);
 		}
@@ -248,13 +288,13 @@ public abstract class AbstractRequestMessageHandleServlet extends HttpServlet {
 	/**
 	 * 解锁请求信息的处理
 	 * 
-	 * @param xml
+	 * @param requestMessageKey
 	 */
-	protected void unlockRequestMessageHandle(String requestMessage) {
+	protected void unlockRequestMessageHandle(String requestMessageKey) {
 		try {
 			Cache cache = getLockRequestMessageHandleCache();
 			if (cache != null)
-				cache.remove(requestMessage);
+				cache.remove(requestMessageKey);
 		} catch (Exception e) {
 			LOG.error(e);
 		}
@@ -263,14 +303,14 @@ public abstract class AbstractRequestMessageHandleServlet extends HttpServlet {
 	/**
 	 * 获取请求对应的响应信息
 	 * 
-	 * @param requestMessage
+	 * @param requestMessageKey
 	 * @return
 	 */
-	protected String getResponseMessageInCache(String requestMessage) {
+	protected String getResponseMessageInCache(String requestMessageKey) {
 		try {
 			Cache cache = getResponseMessageCache();
 			if (cache != null)
-				return (String) cache.get(requestMessage);
+				return (String) cache.get(requestMessageKey);
 		} catch (Exception e) {
 			LOG.error(e);
 		}
@@ -280,14 +320,14 @@ public abstract class AbstractRequestMessageHandleServlet extends HttpServlet {
 	/**
 	 * 缓存请求响应
 	 * 
-	 * @param requestMessage
+	 * @param requestMessageKey
 	 * @param responseMessage
 	 */
-	protected void putResponseMessageInCache(String requestMessage, String responseMessage) {
+	protected void putResponseMessageInCache(String requestMessageKey, String responseMessage) {
 		try {
 			Cache cache = getResponseMessageCache();
 			if (cache != null)
-				cache.put(requestMessage, responseMessage);
+				cache.put(requestMessageKey, responseMessage);
 		} catch (Exception e) {
 			LOG.error(e);
 		}
