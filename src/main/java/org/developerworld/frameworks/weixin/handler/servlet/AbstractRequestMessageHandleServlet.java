@@ -33,6 +33,7 @@ import org.developerworld.frameworks.weixin.message.request.EventRequestMessage;
 public abstract class AbstractRequestMessageHandleServlet extends HttpServlet {
 
 	private final static Log LOG = LogFactory.getLog(AbstractRequestMessageHandleServlet.class);
+	private final static String RESPONSE_MESSAGE_XML_EMPTY_VALUE = "RESPONSE_MESSAGE_XML_EMPTY_VALUE";
 
 	protected RequestMessageConverter requestMessageConverter = new RequestMessageConverter();
 	protected ResponseMessageConverter responseMessageConverter = new ResponseMessageConverter();
@@ -189,12 +190,14 @@ public abstract class AbstractRequestMessageHandleServlet extends HttpServlet {
 
 	/**
 	 * 构建响应xml信息字符串
+	 * 
 	 * @param request
 	 * @param token
 	 * @param responseMessage
 	 * @return
 	 */
-	protected String buildResponseMessageXML(HttpServletRequest request, String token, ResponseMessage responseMessage) {
+	protected String buildResponseMessageXML(HttpServletRequest request, String token,
+			ResponseMessage responseMessage) {
 		// 转化响应信息
 		String rst = null;
 		if (responseMessage != null)
@@ -213,22 +216,23 @@ public abstract class AbstractRequestMessageHandleServlet extends HttpServlet {
 	 */
 	protected ResponseMessage doHandle(HttpServletRequest request, String token, RequestMessage reqMessage)
 			throws Exception {
-		ResponseMessage rst = null;
 		// 获取处理器
 		Set<RequestMessageHandler> requestMessageHandlers = getRequestMessageHandlers(request);
+		if (requestMessageHandlers == null)
+			return null;
 		for (RequestMessageHandler requestMessageHandler : requestMessageHandlers) {
 			// 判断是否支持处理信息
 			if (requestMessageHandler.isSupport(reqMessage)) {
 				// 处理并反馈响应信息
 				ResponseMessage _repMessage = requestMessageHandler.handle(reqMessage);
 				if (_repMessage != null)
-					break;
+					return _repMessage;
 				// 若设置为不再继续查找，则跳出
 				else if (!isFindOtherHandlerWhenHasNotResponse())
 					break;
 			}
 		}
-		return rst;
+		return null;
 	}
 
 	/**
@@ -309,8 +313,10 @@ public abstract class AbstractRequestMessageHandleServlet extends HttpServlet {
 	protected String getResponseMessageInCache(String requestMessageKey) {
 		try {
 			Cache cache = getResponseMessageCache();
-			if (cache != null)
-				return (String) cache.get(requestMessageKey);
+			if (cache != null) {
+				String responseMessage = (String) cache.get(requestMessageKey);
+				return RESPONSE_MESSAGE_XML_EMPTY_VALUE.equals(responseMessage) ? "" : responseMessage;
+			}
 		} catch (Exception e) {
 			LOG.error(e);
 		}
@@ -327,7 +333,8 @@ public abstract class AbstractRequestMessageHandleServlet extends HttpServlet {
 		try {
 			Cache cache = getResponseMessageCache();
 			if (cache != null)
-				cache.put(requestMessageKey, responseMessage);
+				cache.put(requestMessageKey,
+						StringUtils.isBlank(responseMessage) ? RESPONSE_MESSAGE_XML_EMPTY_VALUE : responseMessage);
 		} catch (Exception e) {
 			LOG.error(e);
 		}
