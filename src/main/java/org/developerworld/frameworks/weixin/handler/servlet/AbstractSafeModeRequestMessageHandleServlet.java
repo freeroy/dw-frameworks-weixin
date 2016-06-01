@@ -280,7 +280,7 @@ public abstract class AbstractSafeModeRequestMessageHandleServlet extends Abstra
 		_outXml.append("<Encrypt><![CDATA[").append(msgEncrypt).append("]]></Encrypt>");
 		_outXml.append("<MsgSignature><![CDATA[").append(_msgSignature).append("]]></MsgSignature>");
 		_outXml.append("<TimeStamp>").append(timestamp).append("</TimeStamp>");
-		_outXml.append("<Nonce><![CDATA[").append(nonce).append("]]</Nonce>");
+		_outXml.append("<Nonce><![CDATA[").append(nonce).append("]]></Nonce>");
 		_outXml.append("</xml>");
 		return _outXml.toString();
 	}
